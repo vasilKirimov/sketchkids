@@ -60,7 +60,7 @@ module.exports = async (req, res) => {
 - Всичко на БЪЛГАРСКИ език`;
 
       const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }],
       });
@@ -100,7 +100,7 @@ ${ageCtx.charAt(0).toUpperCase() + ageCtx.slice(1)} се опитва да на�
 Говори директно към детето.`;
 
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-3-5-sonnet-20241022',
         max_tokens: 400,
         messages: [{
           role: 'user',
