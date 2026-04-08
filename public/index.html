@@ -2033,8 +2033,31 @@ function SketchScreen({ profile, onBack }) {
   const [image, setImage] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [fbLoading, setFbLoading] = useState(false);
+  const [assistSteps, setAssistSteps] = useState([]);
+  const [assistIdx, setAssistIdx] = useState(0);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [showAssist, setShowAssist] = useState(false);
   const camera = useCamera();
   const fileRef = useRef(null);
+
+  const resetSketch = () => {
+    camera.stop();
+    setSelected(null); setImage(null); setFeedback(null);
+    setAssistSteps([]); setAssistIdx(0);
+    setShowAssist(false); setAssistLoading(false);
+  };
+
+  const loadAssist = async () => {
+    if (assistSteps.length > 0) { setShowAssist(true); return; }
+    setAssistLoading(true);
+    try {
+      const steps = await generateSteps(selected.title, profile.ageGroup);
+      setAssistSteps(steps); setAssistIdx(0); setShowAssist(true);
+    } catch(e) {
+      setAssistSteps([{step:1,title:"Грешка",instruction:"Не успях да заредя стъпките. Провери интернет и опитай пак.",emoji:"❌"}]);
+    }
+    setAssistLoading(false);
+  };
 
   const tags = ["всички", ...Object.keys(TAG_LABELS)];
 
@@ -2105,7 +2128,7 @@ function SketchScreen({ profile, onBack }) {
   // ── Detail / drawing view ──
   return (
     <div style={{ minHeight:"100vh", background:C.bg }}>
-      <TopBar bg="#FF9800" onBack={()=>{ camera.stop(); setSelected(null); setImage(null); setFeedback(null); }}
+      <TopBar bg="#FF9800" onBack={resetSketch}
         title={`${selected.emoji} ${selected.title}`}/>
       <div style={{ padding:"20px", maxWidth:560, margin:"0 auto" }}>
 
@@ -2235,7 +2258,7 @@ function SketchScreen({ profile, onBack }) {
           }
         </Card>}
 
-        <button onClick={()=>{ camera.stop(); setSelected(null); setImage(null); setFeedback(null); }}
+        <button onClick={resetSketch}
           style={{ ...mkBtn(C.cream,C.border), width:"100%", color:C.textMid, boxShadow:"none", fontSize:15 }}>
           ← Избери друга скица
         </button>
