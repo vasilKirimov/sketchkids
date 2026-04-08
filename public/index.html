@@ -2143,10 +2143,10 @@ function SketchScreen({ profile, onBack }) {
         {/* Photo feedback */}
         {camera.active
           ? <div style={{ background:"#111", borderRadius:24, overflow:"hidden", marginBottom:16 }}>
-              <video ref={camera.videoRef} autoPlay playsInline style={{ width:"100%", display:"block" }}/>
+              <video ref={camera.videoRef} autoPlay playsInline muted style={{ width:"100%", display:"block" }}/>
               <canvas ref={camera.canvasRef} style={{ display:"none" }}/>
               <div style={{ padding:14, display:"flex", gap:12 }}>
-                <Btn onClick={()=>{ const d=camera.capture(); if(d) handlePhoto(d); }}
+                <Btn onClick={async ()=>{ const d=await camera.capture(); if(d) handlePhoto(d); }}
                   bg={C.yellow} shadow={C.yellowDark} style={{ flex:1, color:C.text, fontSize:20 }}>📸 Снимай!</Btn>
                 <Btn onClick={camera.stop} bg="rgba(255,255,255,0.15)" shadow="transparent"
                   style={{ color:C.white, boxShadow:"none", fontSize:20 }}>✕</Btn>
@@ -2161,7 +2161,7 @@ function SketchScreen({ profile, onBack }) {
                 🖼️ Качи снимка
               </button>
               <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }}
-                onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>handlePhoto(ev.target.result); r.readAsDataURL(f); }}/>
+                onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ const compressed = await compressImage(ev.target.result); handlePhoto(compressed); }; r.readAsDataURL(f); }}/>
             </div>
         }
 
@@ -2240,22 +2240,80 @@ function ProgressBar({ value, max, color=C.primary }) {
   );
 }
 
+// Compress image to max 1024px, JPEG 0.75 — keeps size under 1MB for API
+function compressImage(dataUrl, maxPx=1024, quality=0.75) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.src = dataUrl;
+  });
+}
+
 function useCamera() {
   const videoRef=useRef(null), canvasRef=useRef(null), streamRef=useRef(null);
   const [active, setActive]=useState(false);
+
   const start = async () => {
     try {
-      const s = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280}}});
-      streamRef.current=s; if(videoRef.current) videoRef.current.srcObject=s; setActive(true);
-    } catch { alert("Не мога да отворя камерата.\nМоля разреши достъп в настройките на браузъра."); }
+      // Simple constraints work best on iOS Safari
+      const constraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width:  { ideal: 1280 },
+          height: { ideal: 960 },
+        }
+      };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = s;
+      if (videoRef.current) {
+        videoRef.current.srcObject = s;
+        // iOS requires explicit play() call after setting srcObject
+        try { await videoRef.current.play(); } catch(e) {}
+      }
+      setActive(true);
+    } catch (err) {
+      // Fallback: try any camera
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = s;
+        if (videoRef.current) {
+          videoRef.current.srcObject = s;
+          try { await videoRef.current.play(); } catch(e) {}
+        }
+        setActive(true);
+      } catch (err2) {
+        alert("Не мога да отворя камерата.\nМоля разреши достъп в Safari Настройки → Камера.");
+      }
+    }
   };
-  const stop = () => { streamRef.current?.getTracks().forEach(t=>t.stop()); streamRef.current=null; setActive(false); };
-  const capture = () => {
-    const v=videoRef.current, c=canvasRef.current; if(!v||!c) return null;
-    c.width=v.videoWidth; c.height=v.videoHeight; c.getContext("2d").drawImage(v,0,0);
-    stop(); return c.toDataURL("image/jpeg", 0.85);
+
+  const stop = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setActive(false);
   };
-  useEffect(()=>()=>stop(), []);
+
+  const capture = async () => {
+    const v = videoRef.current, c = canvasRef.current;
+    if (!v || !c) return null;
+    c.width  = v.videoWidth  || 640;
+    c.height = v.videoHeight || 480;
+    c.getContext('2d').drawImage(v, 0, 0);
+    stop();
+    const raw = c.toDataURL('image/jpeg', 0.9);
+    return compressImage(raw); // compress before sending to API
+  };
+
+  useEffect(() => () => stop(), []);
   return { videoRef, canvasRef, active, start, stop, capture };
 }
 
@@ -2671,10 +2729,10 @@ function LearnScreen({ profile, onBack }) {
 
           {camera.active
             ? <div style={{ background:"#111", borderRadius:24, overflow:"hidden", marginBottom:16 }}>
-                <video ref={camera.videoRef} autoPlay playsInline style={{ width:"100%", display:"block" }}/>
+                <video ref={camera.videoRef} autoPlay playsInline muted style={{ width:"100%", display:"block" }}/>
                 <canvas ref={camera.canvasRef} style={{ display:"none" }}/>
                 <div style={{ padding:14, display:"flex", gap:12 }}>
-                  <Btn onClick={()=>{ const d=camera.capture(); if(d) handlePhoto(d); }}
+                  <Btn onClick={async ()=>{ const d=await camera.capture(); if(d) handlePhoto(d); }}
                     bg={C.yellow} shadow={C.yellowDark} style={{ flex:1, color:C.text, fontSize:20 }}>📸 Снимай!</Btn>
                   <Btn onClick={camera.stop} bg="rgba(255,255,255,0.15)" shadow="transparent"
                     style={{ color:C.white, boxShadow:"none", fontSize:20 }}>✕</Btn>
@@ -2685,7 +2743,7 @@ function LearnScreen({ profile, onBack }) {
                 <button onClick={()=>fileRef.current.click()}
                   style={{ ...mkBtn(C.white,C.border), flex:1, color:C.text, boxShadow:"0 4px 0 "+C.border, fontSize:14 }}>🖼️ Качи снимка</button>
                 <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }}
-                  onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>handlePhoto(ev.target.result); r.readAsDataURL(f); }}/>
+                  onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ const compressed = await compressImage(ev.target.result); handlePhoto(compressed); }; r.readAsDataURL(f); }}/>
               </div>
           }
 
@@ -2762,10 +2820,10 @@ function PracticeScreen({ profile, onBack }) {
         </Card>
         {camera.active
           ? <div style={{ background:"#111", borderRadius:24, overflow:"hidden", marginBottom:16 }}>
-              <video ref={camera.videoRef} autoPlay playsInline style={{ width:"100%", display:"block" }}/>
+              <video ref={camera.videoRef} autoPlay playsInline muted style={{ width:"100%", display:"block" }}/>
               <canvas ref={camera.canvasRef} style={{ display:"none" }}/>
               <div style={{ padding:14, display:"flex", gap:12 }}>
-                <Btn onClick={()=>{ const d=camera.capture(); if(d) analyze(d); }} bg={C.yellow} shadow={C.yellowDark} style={{ flex:1, color:C.text, fontSize:20 }}>📸 Снимай!</Btn>
+                <Btn onClick={async ()=>{ const d=await camera.capture(); if(d) analyze(d); }} bg={C.yellow} shadow={C.yellowDark} style={{ flex:1, color:C.text, fontSize:20 }}>📸 Снимай!</Btn>
                 <Btn onClick={camera.stop} bg="rgba(255,255,255,0.15)" shadow="transparent" style={{ color:C.white, boxShadow:"none", fontSize:20 }}>✕</Btn>
               </div>
             </div>
@@ -2773,7 +2831,7 @@ function PracticeScreen({ profile, onBack }) {
               <Btn onClick={camera.start} bg="#43A047" shadow="#2E7D32" style={{ fontSize:20 }}>📷 Отвори камера</Btn>
               <button onClick={()=>fileRef.current.click()} style={{ ...mkBtn(C.white,C.border), color:C.text, boxShadow:"0 4px 0 "+C.border, fontSize:18 }}>🖼️ Качи от галерията</button>
               <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }}
-                onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>analyze(ev.target.result); r.readAsDataURL(f); }}/>
+                onChange={e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ev=>{ const compressed = await compressImage(ev.target.result); analyze(compressed); }; r.readAsDataURL(f); }}/>
             </div>
         }
         {image && <Card>
