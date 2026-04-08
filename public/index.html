@@ -938,11 +938,10 @@ const STEP_SVGS = {
 
 // Get step SVG for a given subject, step index, and age group
 function getStepSvg(subject, stepIdx, ageGroup) {
-  // Try age-specific key first (for 4-6 subjects)
-  const ageKey = subject + "_" + ageGroup;
+  const s = (subject || "").toLowerCase();  // normalize case
+  const ageKey = s + "_" + ageGroup;
   if (STEP_SVGS[ageKey] && STEP_SVGS[ageKey][stepIdx]) return STEP_SVGS[ageKey][stepIdx];
-  // Try subject directly
-  if (STEP_SVGS[subject] && STEP_SVGS[subject][stepIdx]) return STEP_SVGS[subject][stepIdx];
+  if (STEP_SVGS[s] && STEP_SVGS[s][stepIdx]) return STEP_SVGS[s][stepIdx];
   // Fall back to generic stages
   const count = ageGroup === "4-6" ? 4 : ageGroup === "16+" ? 8 : 6;
   const labels = {
@@ -1253,8 +1252,9 @@ const GENERIC_ANIM = [
 ];
 
 function getStepAnimData(subject, stepIdx, ageGroup) {
-  const ageKey = subject + "_" + ageGroup;
-  const data = STEP_ANIM_DATA[ageKey] || STEP_ANIM_DATA[subject];
+  const s = (subject || "").toLowerCase();  // normalize case
+  const ageKey = s + "_" + ageGroup;
+  const data = STEP_ANIM_DATA[ageKey] || STEP_ANIM_DATA[s];
   if (data && data[stepIdx] !== undefined) return data[stepIdx];
   // Generic fallback
   const fallbackPaths = (GENERIC_ANIM[stepIdx] || GENERIC_ANIM[0]).map(p => ({
@@ -2172,7 +2172,7 @@ function SketchScreen({ profile, onBack }) {
                     Стъпка {assistIdx+1} от {assistSteps.length}
                   </span>
                 </div>
-                <AnimatedStepIllustration subject={selected.title} stepIdx={assistIdx}
+                <AnimatedStepIllustration subject={selected.title.toLowerCase()} stepIdx={assistIdx}
                   ageGroup={profile.ageGroup} isLeft={profile.handedness==="left"}/>
                 <div style={{ background:"white", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
                   <p style={{ fontSize:17, fontWeight:900, color:C.text, margin:"0 0 4px" }}>
