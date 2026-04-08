@@ -2128,7 +2128,59 @@ function SketchScreen({ profile, onBack }) {
         </Card>
 
         {/* Tips */}
-        <Card style={{ marginBottom:16, background:"#FFF9C4" }}>
+               {/* ── Assisted drawing panel ── */}
+          <Card style={{ marginBottom:16, background:"#F3E5F5", border:"2px solid #CE93D8" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:showAssist?14:0 }}>
+              <div>
+                <p style={{ fontWeight:900, fontSize:16, color:C.purple, margin:0 }}>✏️ Асистирано рисуване</p>
+                {!showAssist && <p style={{ fontSize:12, color:"#AB47BC", margin:"2px 0 0", fontWeight:700 }}>Стъпка по стъпка с анимиран молив</p>}
+              </div>
+              <Btn onClick={showAssist?()=>setShowAssist(false):loadAssist}
+                bg={showAssist?C.purple:"#CE93D8"} shadow={showAssist?C.purpleDark:"#AB47BC"}
+                style={{ padding:"8px 18px", fontSize:14, borderRadius:14 }}>
+                {showAssist?"Скрий ▲":assistLoading?"Зарежда…":"Покажи ▼"}
+              </Btn>
+            </div>
+            {showAssist && assistSteps.length>0 && (
+              <div>
+                <ProgressBar value={assistIdx+1} max={assistSteps.length} color={C.purple}/>
+                <div style={{ textAlign:"center", marginBottom:10 }}>
+                  <span style={{ background:C.purple+"18", color:C.purple, borderRadius:10, padding:"4px 14px", fontSize:13, fontWeight:900 }}>
+                    Стъпка {assistIdx+1} от {assistSteps.length}
+                  </span>
+                </div>
+                <AnimatedStepIllustration subject={selected.title} stepIdx={assistIdx}
+                  ageGroup={profile.ageGroup} isLeft={profile.handedness==="left"}/>
+                <div style={{ background:"white", borderRadius:14, padding:"12px 14px", marginBottom:14 }}>
+                  <p style={{ fontSize:17, fontWeight:900, color:C.text, margin:"0 0 4px" }}>
+                    {assistSteps[assistIdx]?.emoji} {assistSteps[assistIdx]?.title}
+                  </p>
+                  <p style={{ fontSize:15, lineHeight:1.7, color:C.textMid, margin:0 }}>
+                    {assistSteps[assistIdx]?.instruction}
+                  </p>
+                </div>
+                <div style={{ display:"flex", gap:12 }}>
+                  {assistIdx>0 && (
+                    <button onClick={()=>setAssistIdx(assistIdx-1)}
+                      style={{ ...mkBtn(C.cream,C.border), flex:1, color:C.textMid, boxShadow:"0 4px 0 "+C.border, fontSize:15 }}>
+                      ← Предишна
+                    </button>
+                  )}
+                  {assistIdx<assistSteps.length-1 ? (
+                    <Btn onClick={()=>setAssistIdx(assistIdx+1)} bg={C.purple} shadow={C.purpleDark} style={{ flex:1, fontSize:15 }}>
+                      Следваща →
+                    </Btn>
+                  ) : (
+                    <Btn onClick={()=>setShowAssist(false)} bg={C.yellow} shadow={C.yellowDark} style={{ flex:1, color:C.text, fontSize:15 }}>
+                      🎉 Готово!
+                    </Btn>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <Card style={{ marginBottom:16, background:"#FFF9C4" }}>
           <p style={{ fontWeight:900, fontSize:15, color:"#7A6000", margin:"0 0 8px" }}>💡 Съвети за скициране:</p>
           <p style={{ fontSize:14, color:"#7A6000", margin:0, lineHeight:1.7 }}>
             1. Започни с основните форми — кръгове и линии<br/>
@@ -2324,89 +2376,80 @@ function AnimatedStepIllustration({ subject, stepIdx, ageGroup, isLeft }) {
   const pencilRef= useRef(null);
   const rafRef   = useRef(null);
 
+  const data = getStepAnimData(subject, stepIdx, ageGroup);
+
+  // Cumulative background: previous step's complete SVG as embedded image
+  // This works automatically for EVERY subject, no per-subject data needed
+  const isColorStep = data.paths.length === 0;
+  const bgSvg = isColorStep
+    ? getStepSvg(subject, stepIdx, ageGroup)       // colour step: show final result
+    : stepIdx > 0
+      ? getStepSvg(subject, stepIdx - 1, ageGroup) // other steps: show previous result
+      : null;                                       // step 0: blank canvas
+
+  const bgDataUrl = bgSvg
+    ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(bgSvg)
+    : null;
+
+  // Animation: pencil draws the new paths for this step
   useEffect(() => {
     if (!svgRef.current) return;
     cancelAnimationFrame(rafRef.current);
-
-    // Reset every path
     const pathEls = Array.from(svgRef.current.querySelectorAll('.ap'));
     if (!pathEls.length) {
-      // no paths to animate — hide pencil
       if (pencilRef.current) pencilRef.current.setAttribute('transform','translate(-200,-200)');
       return;
     }
-
-    // Measure lengths, init dasharray/offset
     const pdata = pathEls.map(el => {
       const len = el.getTotalLength ? el.getTotalLength() : 300;
       el.style.strokeDasharray = len;
       el.style.strokeDashoffset = len;
       return { el, len };
     });
-
-    const STEP_DUR = 1400; // ms per path
-    const PAUSE    = 120;  // ms gap between paths
-    const LOOP_GAP = 2000; // ms before looping
-
+    const STEP_DUR = 1400, PAUSE = 120, LOOP_GAP = 2500;
     let loopStart = null;
-
-    function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
-
+    function eio(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
     function tick(now) {
       if (!svgRef.current || !pencilRef.current) return;
-
       if (!loopStart) loopStart = now;
       const elapsed = now - loopStart;
       const totalCycle = pdata.length * (STEP_DUR + PAUSE) + LOOP_GAP;
-
       if (elapsed >= totalCycle) { loopStart = now; rafRef.current = requestAnimationFrame(tick); return; }
-
       let activeIdx = 0;
       for (let i = 0; i < pdata.length; i++) {
         const pStart = i * (STEP_DUR + PAUSE);
         const t = Math.max(0, Math.min(1, (elapsed - pStart) / STEP_DUR));
-        const e = easeInOut(t);
-        pdata[i].el.style.strokeDashoffset = pdata[i].len * (1 - e);
+        pdata[i].el.style.strokeDashoffset = pdata[i].len * (1 - eio(t));
         if (elapsed >= pStart) activeIdx = i;
       }
-
-      // Move pencil along active path
       const { el: ap, len: al } = pdata[activeIdx];
       const pStart = activeIdx * (STEP_DUR + PAUSE);
       const t = Math.max(0, Math.min(1, (elapsed - pStart) / STEP_DUR));
-      const e = easeInOut(t);
+      const e = eio(t);
       const dist = e * al;
-
-      if (t < 1.0 && t > 0) {
+      if (t < 1.0 && t > 0 && pencilRef.current) {
         const pt    = ap.getPointAtLength(dist);
         const ahead = ap.getPointAtLength(Math.min(al, dist + 4));
         const back  = ap.getPointAtLength(Math.max(0, dist - 4));
         const pathAngle = Math.atan2(ahead.y - back.y, ahead.x - back.x) * 180 / Math.PI;
-        const tiltDeg = pathAngle + (isLeft ? -115 : -65);
-        const tiltRad = tiltDeg * Math.PI / 180;
+        const tiltDeg   = pathAngle + (isLeft ? -115 : -65);
+        const tiltRad   = tiltDeg * Math.PI / 180;
         const TIP = 11;
-        const cx = pt.x + TIP * Math.sin(tiltRad);
-        const cy = pt.y - TIP * Math.cos(tiltRad);
-        pencilRef.current.setAttribute('transform', `translate(${cx},${cy}) rotate(${tiltDeg})`);
+        pencilRef.current.setAttribute('transform',
+          `translate(${pt.x + TIP*Math.sin(tiltRad)},${pt.y - TIP*Math.cos(tiltRad)}) rotate(${tiltDeg})`);
         pencilRef.current.style.opacity = '1';
       } else {
         pencilRef.current.style.opacity = '0';
       }
-
       rafRef.current = requestAnimationFrame(tick);
     }
-
-    // Small delay so React has rendered the SVG
     const tid = setTimeout(() => { rafRef.current = requestAnimationFrame(tick); }, 60);
     return () => { clearTimeout(tid); cancelAnimationFrame(rafRef.current); };
   }, [subject, stepIdx, ageGroup, isLeft]);
 
-  const data = getStepAnimData(subject, stepIdx, ageGroup);
-
   return (
     <div style={{ borderRadius:18, overflow:"hidden", border:"2px solid #E8D8C4", background:"#f9f7f2", marginBottom:14 }}>
-      <svg ref={svgRef} viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg"
-           style={{ width:"100%", display:"block" }}>
+      <svg ref={svgRef} viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" style={{ width:"100%", display:"block" }}>
         <defs>
           <filter id="pf-a">
             <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4" result="n"/>
@@ -2415,41 +2458,34 @@ function AnimatedStepIllustration({ subject, stepIdx, ageGroup, isLeft }) {
         </defs>
         <rect width="220" height="220" fill="#f9f7f2"/>
 
-        {/* Previously drawn elements */}
-        {data.bg && <g filter="url(#pf-a)" dangerouslySetInnerHTML={{ __html: data.bg }}/>}
+        {/* Cumulative progress — all previous steps as flat background */}
+        {bgDataUrl && (
+          <image href={bgDataUrl} x="0" y="0" width="220" height="220"/>
+        )}
 
-        {/* New paths — animated */}
-        <g filter="url(#pf-a)">
-          {data.paths.map((p, i) => (
-            <path key={i} className="ap"
-              d={p.d}
-              stroke={p.stroke||"#2a2420"}
-              strokeWidth={p.width||2.2}
-              fill={p.fill||"none"}
-              strokeLinecap="round"
-              strokeLinejoin="round"/>
-          ))}
-        </g>
+        {/* New paths animated this step */}
+        {!isColorStep && (
+          <g filter="url(#pf-a)">
+            {data.paths.map((p, i) => (
+              <path key={i} className="ap"
+                d={p.d} stroke={p.stroke||"#2a2420"} strokeWidth={p.width||2.2}
+                fill={p.fill||"none"} strokeLinecap="round" strokeLinejoin="round"/>
+            ))}
+          </g>
+        )}
 
-        {/* Pencil */}
-        <g ref={pencilRef} transform="translate(-200,-200)" style={{ opacity:0, transition:"opacity 0.2s" }}>
-          {/* body */}
-          <rect x="-4" y="-22" width="8" height="22" fill="#FFD600" rx="2"/>
-          {/* tip cone */}
-          <polygon points="-4,0 4,0 0,11" fill="#C8860A"/>
-          {/* graphite */}
-          <circle cx="0" cy="11" r="2.2" fill="#2a2420"/>
-          {/* eraser */}
-          <rect x="-4" y="-26" width="8" height="6" fill="#FFB7C5" rx="2"/>
-          {/* metal band */}
-          <rect x="-4" y="-22" width="8" height="3" fill="#999"/>
-          {/* shine */}
-          <rect x="-2.5" y="-20" width="2" height="16" fill="rgba(255,255,255,0.45)" rx="1"/>
-          {/* left-hand extra indicator */}
-          {isLeft && <rect x="2" y="-20" width="1" height="16" fill="rgba(255,255,255,0.25)" rx="0.5"/>}
-        </g>
+        {/* Pencil (hidden on colour step) */}
+        {!isColorStep && (
+          <g ref={pencilRef} transform="translate(-200,-200)" style={{ opacity:0, transition:"opacity 0.2s" }}>
+            <rect x="-4" y="-22" width="8" height="22" fill="#FFD600" rx="2"/>
+            <polygon points="-4,0 4,0 0,11" fill="#C8860A"/>
+            <circle cx="0" cy="11" r="2.2" fill="#2a2420"/>
+            <rect x="-4" y="-26" width="8" height="6" fill="#FFB7C5" rx="2"/>
+            <rect x="-4" y="-22" width="8" height="3" fill="#999"/>
+            <rect x="-2.5" y="-20" width="2" height="16" fill="rgba(255,255,255,0.45)" rx="1"/>
+          </g>
+        )}
 
-        {/* Label */}
         {data.label && (
           <text x="110" y="214" textAnchor="middle" fontSize="11" fill="#c05020"
                 fontFamily="sans-serif" fontWeight="bold">{data.label}</text>
@@ -2458,8 +2494,6 @@ function AnimatedStepIllustration({ subject, stepIdx, ageGroup, isLeft }) {
     </div>
   );
 }
-
-
 
 // ─── PROFILE SCREEN ───────────────────────────────────────────────────────────
 function ProfileScreen({ onSelect }) {
