@@ -1329,12 +1329,10 @@ async function analyzeDrawingAPI(imageData, subject, stepTitle, stepIndex, total
       ageGroup,
     }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `API ${res.status}`);
-  }
-  const data = await res.json();
-  return data.feedback;
+  const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  if (!body.feedback) throw new Error('Празен отговор от сървъра');
+  return body.feedback;
 }
 
 
@@ -2050,7 +2048,7 @@ function SketchScreen({ profile, onBack }) {
     try {
       result = await analyzeDrawingAPI(dataUrl, subject, step?.title, idx, steps.length, profile.ageGroup);
     } catch(e) {
-      result = "Не успях да анализирам рисунката. Провери интернет връзката и опитай пак.";
+      result = "❌ Грешка: " + (e.message || "Неизвестна грешка") + " — опитай пак.";
     }
     setFeedback(result); setFbLoading(false);
     const prog = db.getProgress(profile.id);
@@ -2258,39 +2256,42 @@ function compressImage(dataUrl, maxPx=1024, quality=0.75) {
 }
 
 function useCamera() {
-  const videoRef=useRef(null), canvasRef=useRef(null), streamRef=useRef(null);
-  const [active, setActive]=useState(false);
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const [active, setActive] = useState(false);
+
+  // KEY FIX: set srcObject AFTER React renders the video element into DOM
+  useEffect(() => {
+    if (active && videoRef.current && streamRef.current) {
+      const v = videoRef.current;
+      v.srcObject = streamRef.current;
+      // iOS Safari needs explicit play() and muted for autoplay
+      v.muted = true;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('autoplay', '');
+      const playPromise = v.play();
+      if (playPromise) playPromise.catch(() => {
+        // Retry once after short delay (iOS quirk)
+        setTimeout(() => v.play().catch(() => {}), 300);
+      });
+    }
+  }, [active]);
 
   const start = async () => {
-    try {
-      // Simple constraints work best on iOS Safari
-      const constraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width:  { ideal: 1280 },
-          height: { ideal: 960 },
-        }
-      };
+    // Try environment (back) camera first, fallback to any camera
+    const tryGet = async (constraints) => {
       const s = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = s;
-      if (videoRef.current) {
-        videoRef.current.srcObject = s;
-        // iOS requires explicit play() call after setting srcObject
-        try { await videoRef.current.play(); } catch(e) {}
-      }
-      setActive(true);
-    } catch (err) {
-      // Fallback: try any camera
+      setActive(true); // triggers useEffect above to set srcObject
+    };
+    try {
+      await tryGet({ video: { facingMode: { ideal: 'environment' } } });
+    } catch {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: true });
-        streamRef.current = s;
-        if (videoRef.current) {
-          videoRef.current.srcObject = s;
-          try { await videoRef.current.play(); } catch(e) {}
-        }
-        setActive(true);
-      } catch (err2) {
-        alert("Не мога да отворя камерата.\nМоля разреши достъп в Safari Настройки → Камера.");
+        await tryGet({ video: true });
+      } catch {
+        alert("Не мога да отворя камерата.\nИди в Safari → Настройки → Камера и избери Разреши.");
       }
     }
   };
@@ -2307,10 +2308,9 @@ function useCamera() {
     if (!v || !c) return null;
     c.width  = v.videoWidth  || 640;
     c.height = v.videoHeight || 480;
-    c.getContext('2d').drawImage(v, 0, 0);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
     stop();
-    const raw = c.toDataURL('image/jpeg', 0.9);
-    return compressImage(raw); // compress before sending to API
+    return compressImage(c.toDataURL('image/jpeg', 0.92));
   };
 
   useEffect(() => () => stop(), []);
@@ -2646,7 +2646,7 @@ function LearnScreen({ profile, onBack }) {
     try {
       result = await analyzeDrawingAPI(dataUrl, subject, step?.title, idx, steps.length, profile.ageGroup);
     } catch(e) {
-      result = "Не успях да анализирам рисунката. Провери интернет връзката и опитай пак.";
+      result = "❌ Грешка: " + (e.message || "Неизвестна грешка") + " — опитай пак.";
     }
     setFeedback(result); setFbLoading(false);
     const prog = db.getProgress(profile.id);
@@ -2802,7 +2802,7 @@ function PracticeScreen({ profile, onBack }) {
     try {
       result = await analyzeDrawingAPI(dataUrl, subject, step?.title, idx, steps.length, profile.ageGroup);
     } catch(e) {
-      result = "Не успях да анализирам рисунката. Провери интернет връзката и опитай пак.";
+      result = "❌ Грешка: " + (e.message || "Неизвестна грешка") + " — опитай пак.";
     }
     setFeedback(result); setFbLoading(false);
     const prog = db.getProgress(profile.id);
