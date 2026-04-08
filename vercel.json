@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "routes": [
+    { "src": "/api/claude", "dest": "/api/claude.js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)",        "dest": "/public/index.html" }
+  ]
+}
